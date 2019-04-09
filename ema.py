@@ -99,7 +99,7 @@ def get_referenced_rotation(df):
 
     return OS, m
 
-def get_desired_head_location(df):  
+def get_desired_head_location(df, protractor=False):  
     ''' get the desired positions of three points - nasion, right mastoid, left mastoid (REF, RMA, LMA)
         so that the translation and rotation of these points will correct for head movement, and put
         the data onto an occlusal plane coordinate system.  
@@ -114,11 +114,19 @@ def get_desired_head_location(df):
             desired positions of REF, RMA, and LMA
     '''
     # The relative locations of these is fixed - okay to operate on means
-    MS = df.loc[:, ['MS_x', 'MS_y', 'MS_z']].mean(skipna=True).as_matrix()
-    OS = df.loc[:, ['OS_x', 'OS_y', 'OS_z']].mean(skipna=True).as_matrix()
-    REF = df.loc[:,['REF_x', 'REF_y', 'REF_z']].mean(skipna=True).as_matrix()
-    RMA= df.loc[:, ['RMA_x', 'RMA_y', 'RMA_z']].mean(skipna=True).as_matrix()
-    LMA = df.loc[:, ['LMA_x', 'LMA_y', 'LMA_z']].mean(skipna=True).as_matrix()
+    if (protractor):  # if we are using a protractor instead of a wax biteplate
+        RO = df.loc[:, ['RO_x', 'RO_y', 'RO_z']].mean(skipna=True).values  # right occlusal (protractor)
+        LO = df.loc[:, ['LO_x', 'LO_y', 'LO_z']].mean(skipna=True).values  # left occlusal
+
+        MS = df.loc[:, ['FO_x', 'FO_y', 'FO_z']].mean(skipna=True).values  # front occlusal   
+        OS = (RO + LO)/2  # choose this as the origin of the space
+    else: 
+        MS = df.loc[:, ['MS_x', 'MS_y', 'MS_z']].mean(skipna=True).values
+        OS = df.loc[:, ['OS_x', 'OS_y', 'OS_z']].mean(skipna=True).values
+
+    REF = df.loc[:,['REF_x', 'REF_y', 'REF_z']].mean(skipna=True).values
+    RMA= df.loc[:, ['RMA_x', 'RMA_y', 'RMA_z']].mean(skipna=True).values
+    LMA = df.loc[:, ['LMA_x', 'LMA_y', 'LMA_z']].mean(skipna=True).values
     
     # 1) start by translating the space so OS is at the origin
     ref_t = REF-OS   
@@ -143,7 +151,7 @@ def get_desired_head_location(df):
     rma_t = dot(rma_t,m.T) 
     lma_t = dot(lma_t,m.T)
     
-    return ref_t, rma_t, lma_t
+    return OS, ref_t, rma_t, lma_t
     
 def read_referenced_biteplate(my_dir,file_name,sensors,subcolumns):
     ''' 
@@ -219,8 +227,14 @@ def head_correct_and_rotate(df,REF,RMA,LMA):
     # for each frame
     # 1) find the translation and rotation that will move the head into the occlusal coordinate system
     #              this is where we use Horns direct method of fitting to an ideal triangle
-    # 2) apply the translation and rotation to each sensor in the frame.
+
+    R, t = rowan.mapping.kabsch(hdvals, idealhd)
+    q = rowan.from_matrix(R)  # Convert to quaternion
+
     
+    # 2) apply the translation and rotation to each sensor in the frame.
+    return rowan.rotate(q, allvals) + t
+
     ''' Question:  should we smooth the head position sensors prior to head correction?
         A reason to do this is that we can then avoid loosing any data due to calibration sensor dropout
         (assuming that missing frames are rare and can be interpolated).  Smoothing might also produce more 
@@ -244,3 +258,4 @@ def save_rotated(mydir,fname,df,myext = 'ndi'):
     processed = name + '.' + myext
     
     df.to_csv(processed, sep="\t", index=False)
+
